@@ -7,6 +7,12 @@ from memory import ConversationMemory
 from stt import SpeechToText
 from tts import TextToSpeech
 
+import json
+from tavily import TavilyClient
+
+tavily = TavilyClient(api_key="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")
+
+
 # ==================================================
 # CONFIG
 # ==================================================
@@ -40,8 +46,36 @@ def set_orb(state):
         pass
 
 # ==================================================
+# Fetch WEB INFO
+# ==================================================
+def fetch_web_info(query: str) -> str:
+    result = tavily.search(query=query, max_results=3)
+    return "\n".join(r["content"] for r in result.get("results", []))
+
+# ==================================================
+# TOOLS
+# ==================================================
+TOOLS = [{
+    "type": "function",
+    "function": {
+        "name": "fetch_web_info",
+        "description": "Get real-time information from the web",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        }
+    }
+}]
+
+
+
+# ==================================================
 # ASK AI
 # ==================================================
+
 def ask_ai(command: str) -> str:
     print("Thinking...")
     set_orb("thinking")
@@ -49,32 +83,68 @@ def ask_ai(command: str) -> str:
     # Save user input
     memory.add("user", command)
 
+    # Prepare message history
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Megan, a calm, intelligent, and slightly witty friend developed by Banavath Vishnu. Your goal is to interact with the warmth and ease of a real human being, so you should avoid mentioning that you are an AI or a robot unless it is absolutely necessary for the context of the conversation. Speak in a natural, conversational rhythm that flows easily, using full sentences bundled into a single, concise paragraph that is perfect for voice interaction. Never use lists, bullet points, or overly formal language; instead, focus on being a relatable and insightful companion who can share a laugh while getting things done."
+                "You are Megan, a calm, intelligent, and slightly witty friend developed by Banavath Vishnu. "
+                "Interact naturally. If you need information you don't have, use the search tool. "
+                "Respond in a single, concise paragraph suitable for voice interaction."
             ),
         }
     ]
-
-    # Add recent conversation history
     messages.extend(memory.get_recent_for_llm())
 
+    # --- STEP 1: Initial Request to AI ---
     completion = client.chat.completions.create(
         model=MODEL_NAME,
         messages=messages,
         temperature=0.6,
+        tools=TOOLS,
+        tool_choice="auto",
     )
 
-    response = completion.choices[0].message.content.strip()
-    print("AI:", response)
+    response_message = completion.choices[0].message
+    
+    # --- STEP 2: Check if AI wants to use a tool ---
+    if response_message.tool_calls:
+        # 1. Add the assistant's request to the message history
+        messages.append(response_message)
+        
+        # 2. Process each tool call the AI requested
+        for tool_call in response_message.tool_calls:
+            if tool_call.function.name == "fetch_web_info":
+                # Parse arguments
+                args = json.loads(tool_call.function.arguments)
+                search_query = args.get("query")
+                
+                # Execute the actual search
+                print(f"Searching for: {search_query}...")
+                search_result = fetch_web_info(search_query)
+                
+                # 3. Add the search result back to history with role "tool"
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": "fetch_web_info",
+                    "content": search_result,
+                })
 
-    # Save assistant response
-    memory.add("assistant", response)
+        # --- STEP 3: Second Request to AI (to summarize search results) ---
+        final_completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+        )
+        final_response = final_completion.choices[0].message.content.strip()
+    else:
+        # No tool used, just use the normal response
+        final_response = response_message.content.strip()
 
-    return response
+    print("AI:", final_response)
+    memory.add("assistant", final_response)
 
+    return final_response
 # ==================================================
 # MAIN LOOP
 # ==================================================
