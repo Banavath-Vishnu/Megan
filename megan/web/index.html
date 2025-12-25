@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <title>MEGAN</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="orb-wrapper" id="orb-container">
+        <div id="captions"></div>
+        <div class="neural-core" id="core"></div>
+        
+        <div class="ring ring-left"></div>
+        <div class="ring ring-right"></div>
+    </div>
+
+    <script type="text/javascript" src="/eel.js"></script>
+    <script>
+        // Target the wrapper ID
+        const container = document.getElementById('orb-container');
+        const captionEl = document.getElementById("captions");
+
+        eel.expose(set_orb_state);
+        function set_orb_state(state) {
+            console.log("State set to:", state);
+            // This now correctly targets the .responding class in CSS
+            container.classList.remove('listening', 'thinking', 'responding', 'idle');
+            container.classList.add(state);
+        }
+
+        eel.expose(update_caption);
+        function update_caption(word) {
+            captionEl.textContent = word;
+            captionEl.style.opacity = "1";
+        }
+
+        eel.expose(clear_captions);
+        function clear_captions() {
+            captionEl.style.opacity = "0";
+            setTimeout(() => { captionEl.textContent = ""; }, 300);
+        }
+    </script>
+</body>
+</html>
